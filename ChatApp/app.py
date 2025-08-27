@@ -28,6 +28,7 @@ app.permanent_session_lifetime = timedelta(days=SESSION_DAYS)
 # ルートページのリダイレクト処理
 @app.route('/', methods=['GET'])
 def index():
+    logout()
     uid = session.get('uid')
     if uid is None:
         return redirect(url_for('login_view'))
@@ -104,22 +105,31 @@ def logout():
     return redirect(url_for('login_view'))
 
 
-# カテゴリ画面表示（ここまでは遷移できている）
+# カテゴリ画面表示
 @app.route('/categories', methods=['GET'])
 def categories_view():
+    uid = session.get('uid')
+    if uid is None:
+        return redirect(url_for('login_view'))
     return render_template('auth/categories.html')
 
 
 # # カテゴリ内の都道府県一覧表示/roku
 @app.route('/categories/<cid>', methods=['GET'])
 def prefectures_view(cid):
-    # cid = session.get(cid)セッションは不要？？
-    if cid is None:
-        return redirect(url_for('spots_view'))
+    uid = session.get('uid')
+    if uid is None:
+        return redirect(url_for('login_view'))
     
-    category = Category.find_by_cid(cid)                #←ここ確認
+    # カテゴリーIDをセッションに保存
+    session['cid'] = cid
+    
+    category = Category.find_by_cid(cid)
+    if category is None:
+        flash('指定されたカテゴリが見つかりません')
+        return redirect(url_for('categories_view'))
 
-    return render_template('auth/prefectures.html', category=category)   #←ここ確認
+    return render_template('auth/prefectures.html', category=category)
 
 
 # 特定の都道府県内のスポットルーム一覧表示 /やんみー
@@ -137,19 +147,69 @@ def prefectures_view(cid):
 #     return render_template('/auth/spots_id.html', spots=spots)                #←ここ確認
 
 # """
-@app.route('/spots', methods=['GET'])
-def spots_view():
+@app.route('/spots/<pid>', methods=['GET'])
+def spots_view(pid):
     uid = session.get('uid')
     if uid is None:
         return redirect(url_for('login_view'))
     
-    spots= Spot.get_all()
-    print(spots)
-    return render_template('auth/spot_id.html', spots=spots)  
+    # セッションからカテゴリーIDを取得
+    cid = session.get('cid')
+    if cid is None:
+        flash('カテゴリーが選択されていません')
+        return redirect(url_for('categories_view'))
+    
+    # カテゴリーと都道府県の両方でフィルタリング
+    spots = Spot.find_by_cid_and_pid(cid, pid)
+    prefecture = Prefecture.find_by_pid(pid)
+    category = Category.find_by_cid(cid)
+    
+    return render_template('auth/spot_id.html', spots=spots, prefecture=prefecture, category=category)  
 # """
 
-# @app.route('/spots', methods=[GET])
-# def add_spot_room():
+# スポット作成ページの表示
+@app.route('/spots/<pid>/add', methods=['GET'])
+def add_spot_view(pid):
+    uid = session.get('uid')
+    if uid is None:
+        return redirect(url_for('login_view'))
+    
+    prefecture = Prefecture.find_by_pid(pid)
+    
+    return render_template('auth/spot_add.html', prefecture=prefecture, pid=pid)
+
+
+# スポット作成処理
+@app.route('/spots/<pid>/add', methods=['POST'])
+def create_spot(pid):
+    uid = session.get('uid')
+    if uid is None:
+        return redirect(url_for('login_view'))
+    
+    spot_name = request.form.get('spot_name')
+    
+    if not spot_name:
+        flash('スポット名を入力してください')
+        return redirect(url_for('add_spot_view', pid=pid))
+    
+    # 同じ名前のスポットが存在するかチェック
+    # ここは必要ないかも
+    existing_spot = Spot.find_by_name(spot_name)
+    if existing_spot:
+        flash('既に同じ名前のスポットが存在しています')
+        return redirect(url_for('add_spot_view', pid=pid))
+    
+    # カテゴリIDは現在のセッションまたはデフォルト値を使用
+    cid = session.get('cid', 1)  # デフォルトで海（cid=1）
+    
+    try:
+        Spot.create(cid, pid, spot_name)
+        flash('スポットを作成しました', 'success')
+        return redirect(url_for('spots_view', pid=pid))
+    except Exception as e:
+        flash('スポット作成に失敗しました', 'error')
+        print(f'スポット作成エラー: {e}')
+        return redirect(url_for('add_spot_view', pid=pid))
 
 
 
@@ -179,21 +239,25 @@ def spot_room_view(sid):
     spot = Spot.find_by_sid(sid)
     messages = Message.get_all(sid)
 
-    return render_template('message.html', messages=messages, spot=spot, uid=uid)
+    return render_template('auth/message.html', messages=messages, spot=spot, uid=uid)
 
 # メッセージの投稿
-@app.route('/spots/<sid>/,messages', methods=['POST'])
+@app.route('/spots/<sid>/messages', methods=['POST'])
 def create_message(sid):
-    uid = session('uid')
+    uid = session.get('uid')
     if uid is None:
         return redirect(url_for('login_view'))
     
-    message = request.form.get('messages')
-
+    message = request.form.get('message')
+    
     if message:
-        Message.create(uid, sid, message)
+        try:
+            Message.create(uid, sid, message)
+        except Exception as e:
+            print(f'Error creating message: {e}')
+            flash('メッセージの送信に失敗しました')
 
-    return redirect('/spots/{sid}/messages' .format(sid = sid))    
+    return redirect(url_for('spot_room_view', sid=sid))    
 
 
 # @app.route('/messages/<sid>', methods=['GET'])                      #←ここ確認
@@ -225,7 +289,17 @@ def create_message(sid):
 # アカウント情報表示画面
 @app.route('/information', methods=['GET'])
 def information_view():
-    return render_template('/auth/information.html')
+    uid = session.get('uid')
+    if uid is None:
+        return redirect(url_for('login_view'))
+    
+    # 現在のユーザー情報を取得
+    user = User.find_by_id(uid)
+    if user is None:
+        flash('ユーザー情報が見つかりません')
+        return redirect(url_for('login_view'))
+    
+    return render_template('auth/information.html', user=user)
 
 # # パスワード変更                                                            #←ここ確認
 # @app.route('/information', methods=['POST'])
