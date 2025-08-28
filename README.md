@@ -3,7 +3,7 @@
 # hackathon-begginers-sample
 ハッカソンの初級者コース用のChatAppです。
 
-**最初に環境変数ファイル（.env）を作成します**
+**最初に環境変数ファイル（.env）を作成します****
 - Mac、Windows(PowerShell、Git Bash)の場合
 ```
 cp .env.example .env
