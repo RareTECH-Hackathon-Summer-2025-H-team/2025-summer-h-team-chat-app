@@ -29,8 +29,8 @@
                     <p>まだメッセージがありません。</p>
                 {% endif %}
                 <div class="message_bar">
-                    <form class="message_box" method="post" action="{{ url_for('create_message', sid=spot.id) }}">
-                        <textarea name="message" autofocus placeholder="メッセージを入力してください"></textarea>
+                    <form method="post" action="{{ url_for('create_message', sid=spot.id) }}">
+                        <textarea class="message_box" name="message" autofocus placeholder="メッセージを入力してください"></textarea>
                         <button type="submit" class="send_button">送信＞</button>
                     </form>
                 </div>
