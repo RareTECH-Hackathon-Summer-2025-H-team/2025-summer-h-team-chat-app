@@ -200,17 +200,18 @@ class Message:
         finally:
             db_pool.release(conn)
 
+
     @classmethod
     def get_all(cls, sid):
         conn = db_pool.get_conn()
         try:
             with conn.cursor() as cur:
                 sql = """
-                    SELECT u.id, m.uid, name, message 
+                    SELECT u.id, m.uid, name, message, m.created_at
                     FROM messages AS m 
                     INNER JOIN users AS u ON m.uid = u.id 
                     WHERE sid = %s 
-                    ORDER BY id ASC;
+                    ORDER BY m.created_at ASC;
                 """
                 cur.execute(sql, (sid,))
                 messages = cur.fetchall()
@@ -219,7 +220,7 @@ class Message:
             print(f'エラーが発生しています：{e}')
             abort(500)
         finally:
-            db_pool.release(conn)
+            db_pool.release(conn)            
 
     @classmethod
     def delete(cls, message_id):
